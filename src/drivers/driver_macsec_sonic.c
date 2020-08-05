@@ -10,10 +10,12 @@
 #include "includes.h"
 
 #include <inttypes.h>
+#include <stdarg.h>
 
 #include "utils/common.h"
 #include "driver.h"
 #include "driver_wired_common.h"
+#include "sonic_operators.h"
 
 #define DRV_PREFIX "macsec_sonic"
 
@@ -33,11 +35,70 @@
 #define ENTER_LOG \
     PRINT_LOG("%s", "")
 
+#define DEFAULT_KEY_SEPARATOR  ":"
+
+static char * create_buffer(const char * fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    unsigned int length = vsnprintf(NULL, 0, fmt, args) + 1;
+    va_end(args);
+    if (length < 1)
+    {
+        return NULL;
+    }
+    char * buffer = (char *)malloc(length);
+    if (buffer == NULL)
+    {
+        return NULL;
+    }
+    va_start(args, fmt);
+    vsnprintf(buffer, length, fmt, args);
+    va_end(args);
+    return buffer;
+}
+
+#define CREATE_SC_KEY(IFNAME, SC)       \
+    create_buffer(                      \
+        "%s"                            \
+        DEFAULT_KEY_SEPARATOR "%llu",  \
+        IFNAME,                         \
+        mka_sci_u64(&SC->sci))
+
+#define CREATE_SA_KEY(IFNAME, SA)       \
+    create_buffer(                      \
+        "%s"                            \
+        DEFAULT_KEY_SEPARATOR "%llu"   \
+        DEFAULT_KEY_SEPARATOR "%u",     \
+        IFNAME,                         \
+        mka_sci_u64(&SA->sc->sci),      \
+        (unsigned int)(SA->an))
+
+char * create_binary_hex(const void * binary, unsigned long long length)
+{
+    if (binary == NULL || length == 0)
+    {
+        return NULL;
+    }
+    char * buffer = (char *)malloc(2 * length + 1);
+    if (buffer == NULL)
+    {
+        return NULL;
+    }
+    const char * input = (const char *)binary;
+    for (unsigned long long i = 0; i < length; i++)
+    {
+        snprintf(&buffer[i * 2], 3, "%02X", input[i]);
+    }
+    return buffer;
+}
+
 struct macsec_sonic_data
 {
     struct driver_wired_common_data common;
 
     const char * ifname;
+    sonic_db_handle sonic_mamager;
 };
 
 static void *macsec_sonic_wpa_init(void *ctx, const char *ifname)
@@ -53,7 +114,9 @@ static void *macsec_sonic_wpa_init(void *ctx, const char *ifname)
         os_free(drv);
         return NULL;
     }
+
     drv->ifname = ifname;
+    drv->sonic_mamager = sonic_db_get_manager();
 
     ENTER_LOG;
     return drv;
@@ -72,19 +135,44 @@ static void macsec_sonic_wpa_deinit(void *priv)
 static int macsec_sonic_macsec_init(void *priv, struct macsec_init_params *params)
 {
     struct macsec_sonic_data *drv = priv;
-
     ENTER_LOG;
 
-    return 0;
+    int ret = SONIC_DB_SUCCESS;
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"enable", "false"}
+    };
+    if ((ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_PORT_TABLE_NAME, drv->ifname, pairs, 1))
+        != SONIC_DB_SUCCESS)
+    {
+        return ret;
+    }
+    if ((ret = sonic_db_wait(drv->sonic_mamager, STATE_DB, STATE_MACSEC_PORT_TABLE_NAME, SET_COMMAND, drv->ifname, NULL, 0))
+        != SONIC_DB_SUCCESS)
+    {
+        return ret;
+    }
+    return ret;
 }
 
 static int macsec_sonic_macsec_deinit(void *priv)
 {
     struct macsec_sonic_data *drv = priv;
-
     ENTER_LOG;
 
-    return 0;
+    int ret = SONIC_DB_SUCCESS;
+    if ((ret = sonic_db_del(drv->sonic_mamager, APPL_DB, APP_MACSEC_PORT_TABLE_NAME, drv->ifname))
+        != SONIC_DB_SUCCESS)
+    {
+        return ret;
+    }
+    if ((ret = sonic_db_wait(drv->sonic_mamager, STATE_DB, STATE_MACSEC_PORT_TABLE_NAME, DEL_COMMAND, drv->ifname, NULL, 0))
+        != SONIC_DB_SUCCESS)
+    {
+        return ret;
+    }
+
+    return ret;
 }
 
 static int macsec_sonic_get_capability(void *priv, enum macsec_cap *cap)
@@ -108,10 +196,13 @@ static int macsec_sonic_get_capability(void *priv, enum macsec_cap *cap)
 static int macsec_sonic_enable_protect_frames(void *priv, Boolean enabled)
 {
     struct macsec_sonic_data *drv = priv;
-
     PRINT_LOG("%s", enabled ? "TRUE" : "FALSE");
 
-    return 0;
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"enable_protect", enabled ? "true" : "false"}
+    };
+    return sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_PORT_TABLE_NAME, drv->ifname, pairs, 1);
 }
 
 /**
@@ -124,10 +215,13 @@ static int macsec_sonic_enable_protect_frames(void *priv, Boolean enabled)
 static int macsec_sonic_enable_encrypt(void *priv, Boolean enabled)
 {
     struct macsec_sonic_data *drv = priv;
-
     PRINT_LOG("%s", enabled ? "TRUE" : "FALSE");
 
-    return 0;
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"enable_encrypt", enabled ? "true" : "false"}
+    };
+    return sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_PORT_TABLE_NAME, drv->ifname, pairs, 1);
 }
 
 /**
@@ -142,10 +236,18 @@ static int macsec_sonic_set_replay_protect(void *priv, Boolean enabled,
                                            u32 window)
 {
     struct macsec_sonic_data *drv = priv;
-
     PRINT_LOG("%s %u", enabled ? "TRUE" : "FALSE", window);
 
-    return 0;
+    char * buffer = create_buffer("%u", window);
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"enable_replay_protect", enabled ? "true" : "false"},
+        {"replay_window", buffer}
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_PORT_TABLE_NAME, drv->ifname, pairs, 2);
+    free(buffer);
+
+    return ret;
 }
 
 /**
@@ -158,9 +260,26 @@ static int macsec_sonic_set_current_cipher_suite(void *priv, u64 cs)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%s -> %016" PRIx64, __func__, cs);
+    const char * cipher_suite = NULL;
+    if (cs == CS_ID_GCM_AES_128)
+    {
+        cipher_suite = "GCM-AES-128";
+    }
+    else if (cs == CS_ID_GCM_AES_256)
+    {
+        cipher_suite = "GCM-AES-256";
+    }
+    else
+    {
+        return -1;
+    }
+    PRINT_LOG("%s(%016" PRIx64 ")", cipher_suite, cs);
 
-    return 0;
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"cipher_suite", (char *)(cipher_suite)},
+    };
+    return sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_PORT_TABLE_NAME, drv->ifname, pairs, 1);
 }
 
 /**
@@ -173,10 +292,13 @@ static int macsec_sonic_set_current_cipher_suite(void *priv, u64 cs)
 static int macsec_sonic_enable_controlled_port(void *priv, Boolean enabled)
 {
     struct macsec_sonic_data *drv = priv;
-
     PRINT_LOG("%s", enabled ? "TRUE" : "FALSE");
 
-    return 0;
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"enable_encrypt", enabled ? "true" : "false"}
+    };
+    return sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_PORT_TABLE_NAME, drv->ifname, pairs, 1);
 }
 
 /**
@@ -188,11 +310,26 @@ static int macsec_sonic_enable_controlled_port(void *priv, Boolean enabled)
 static int macsec_sonic_get_receive_lowest_pn(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
-    int err = 0;
 
-    ENTER_LOG;
-
-    return err;
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s", key);
+    struct sonic_db_name_value_pairs * pairs = sonic_db_malloc_name_value_pairs();
+    int ret = sonic_db_get(drv->sonic_mamager, COUNTERS_DB, COUNTERS_MACSEC_TABLE, key, pairs);
+    if (ret == SONIC_DB_SUCCESS)
+    {
+        for (unsigned int i = 0; i < pairs->pair_count; i++)
+        {
+            if ((pairs->pairs[i].name != NULL)
+                && (strcmp("SAI_MACSEC_SA_ATTR_MINIMUM_XPN", pairs->pairs[i].name ) == 0)
+                )
+            {
+                sa->next_pn = strtoul(pairs->pairs[i].value, NULL, 10);
+            }
+        }
+    }
+    sonic_db_free_name_value_pairs(pairs);
+    free(key);
+    return ret;
 }
 
 /**
@@ -205,9 +342,18 @@ static int macsec_sonic_set_receive_lowest_pn(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%d - %d", sa->an, sa->next_pn);
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s - %u", key, sa->next_pn);
+    char * buffer = create_buffer("%u", sa->next_pn);
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"lowest_acceptable_pn", buffer}
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_INGRESS_SA_TABLE_NAME, key, pairs, 1);
+    free(buffer);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -220,7 +366,25 @@ static int macsec_sonic_get_transmit_next_pn(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    ENTER_LOG;
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s", key);
+
+    struct sonic_db_name_value_pairs * pairs = sonic_db_malloc_name_value_pairs();
+    int ret = sonic_db_get(drv->sonic_mamager, COUNTERS_DB, COUNTERS_MACSEC_TABLE, key, pairs);
+    if (ret == SONIC_DB_SUCCESS)
+    {
+        for (unsigned int i = 0; i < pairs->pair_count; i++)
+        {
+            if ((pairs->pairs[i].name != NULL)
+                && (strcmp("SAI_MACSEC_SA_ATTR_XPN", pairs->pairs[i].name ) == 0)
+                )
+            {
+                sa->next_pn = strtoul(pairs->pairs[i].value, NULL, 10);
+            }
+        }
+    }
+    sonic_db_free_name_value_pairs(pairs);
+    free(key);
 
     return 0;
 }
@@ -235,9 +399,18 @@ static int macsec_sonic_set_transmit_next_pn(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%d - %d", sa->an, sa->next_pn);
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s - %u", key, sa->next_pn);
+    char * buffer = create_buffer("%u", sa->next_pn);
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"init_pn", buffer}
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_EGRESS_SA_TABLE_NAME, key, pairs, 1);
+    free(buffer);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 #define SCISTR MACSTR "::%hx"
@@ -260,14 +433,18 @@ static int macsec_sonic_create_receive_sc(void *priv, struct receive_sc *sc,
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG(SCISTR " (conf_offset=%u validation=%d)",
-        SCI2STR(
-            sc->sci.addr,
-            sc->sci.port),
+    char * key = CREATE_SC_KEY(drv->ifname, sc);
+    PRINT_LOG("%s (conf_offset=%u validation=%d)",
+        key,
         conf_offset,
         validation);
+    // TODO 
+    // Validation
+    // OFFSET
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_INGRESS_SC_TABLE_NAME, key, NULL, 0);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -280,9 +457,12 @@ static int macsec_sonic_delete_receive_sc(void *priv, struct receive_sc *sc)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG(SCISTR, SCI2STR(sc->sci.addr, sc->sci.port));
+    char * key = CREATE_SC_KEY(drv->ifname, sc);
+    PRINT_LOG("%s", key);
+    int ret = sonic_db_del(drv->sonic_mamager, APPL_DB, APP_MACSEC_INGRESS_SC_TABLE_NAME, key);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -295,20 +475,35 @@ static int macsec_sonic_create_receive_sa(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG(SCISTR" (enable_receive=%d next_pn=%u)",
-        SCI2STR(
-            sa->sc->sci.addr,
-            sa->sc->sci.port),
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * sak_id = create_binary_hex(&sa->pkey->key_identifier, sizeof(sa->pkey->key_identifier));
+    char * sak = create_binary_hex(sa->pkey->key, sa->pkey->key_len);
+    char * pn = create_buffer("%u", sa->next_pn);
+    PRINT_LOG("%s (enable_receive=%d next_pn=%u) %s %s",
+        key,
         sa->enable_receive,
-        sa->next_pn);
+        sa->next_pn,
+        sak_id,
+        sak);
 
-    wpa_hexdump(MSG_DEBUG, DRV_PREFIX "SA keyid",
-                &sa->pkey->key_identifier,
-                sizeof(sa->pkey->key_identifier));
-    wpa_hexdump_key(MSG_DEBUG, DRV_PREFIX "SA key",
-                    sa->pkey->key, sa->pkey->key_len);
+    // TODO
+    // AUTH_KEY
+    // SALT
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"active", "false"},
+        {"sak", sak},
+        {"auth_key", ""},
+        {"lowest_acceptable_pn", pn},
+        {"salt", ""}
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_INGRESS_SA_TABLE_NAME, key, pairs, 5);
+    free(key);
+    free(sak_id);
+    free(sak);
+    free(pn);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -321,9 +516,12 @@ static int macsec_sonic_delete_receive_sa(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%d on "SCISTR, sa->an, SCI2STR(sa->sc->sci.addr, sa->sc->sci.port));
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s", key);
+    int ret = sonic_db_del(drv->sonic_mamager, APPL_DB, APP_MACSEC_INGRESS_SA_TABLE_NAME, key);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -336,9 +534,16 @@ static int macsec_sonic_enable_receive_sa(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%d on "SCISTR, sa->an, SCI2STR(sa->sc->sci.addr, sa->sc->sci.port));
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s", key);
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"active", "true"},
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_INGRESS_SA_TABLE_NAME, key, pairs, 1);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -351,9 +556,16 @@ static int macsec_sonic_disable_receive_sa(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%d on "SCISTR, sa->an, SCI2STR(sa->sc->sci.addr, sa->sc->sci.port));
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s", key);
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"active", "false"},
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_INGRESS_SA_TABLE_NAME, key, pairs, 1);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -369,9 +581,20 @@ static int macsec_sonic_create_transmit_sc(
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG(SCISTR "(conf_offset=%d)", SCI2STR(sc->sci.addr, sc->sci.port), conf_offset);
+    char * key = CREATE_SC_KEY(drv->ifname, sc);
+    PRINT_LOG("%s (conf_offset=%u)",
+        key,
+        conf_offset);
+    // TODO 
+    // Validation
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"encoding_an", "0"},
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_EGRESS_SC_TABLE_NAME, key, pairs, 1);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -385,9 +608,12 @@ static int macsec_sonic_delete_transmit_sc(void *priv, struct transmit_sc *sc)
 
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG(SCISTR, SCI2STR(sc->sci.addr, sc->sci.port));
+    char * key = CREATE_SC_KEY(drv->ifname, sc);
+    PRINT_LOG("%s", key);
+    int ret = sonic_db_del(drv->sonic_mamager, APPL_DB, APP_MACSEC_EGRESS_SC_TABLE_NAME, key);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -400,19 +626,35 @@ static int macsec_sonic_create_transmit_sa(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG(SCISTR" (enable_transmit=%d next_pn=%u)",
-        SCI2STR(
-            sa->sc->sci.addr,
-            sa->sc->sci.port),
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * sak_id = create_binary_hex(&sa->pkey->key_identifier, sizeof(sa->pkey->key_identifier));
+    char * sak = create_binary_hex(sa->pkey->key, sa->pkey->key_len);
+    char * pn = create_buffer("%u", sa->next_pn);
+    PRINT_LOG("%s (enable_receive=%d next_pn=%u) %s %s",
+        key,
         sa->enable_transmit,
-        sa->next_pn);
-    wpa_hexdump(MSG_DEBUG, DRV_PREFIX "SA keyid",
-                &sa->pkey->key_identifier,
-                sizeof(sa->pkey->key_identifier));
-    wpa_hexdump_key(MSG_DEBUG, DRV_PREFIX "SA key",
-                    sa->pkey->key, sa->pkey->key_len);
+        sa->next_pn,
+        sak_id,
+        sak);
 
-    return 0;
+    // TODO
+    // AUTH_KEY
+    // SALT
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"active", "false"},
+        {"sak", sak},
+        {"auth_key", ""},
+        {"init_pn", pn},
+        {"salt", ""}
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_EGRESS_SA_TABLE_NAME, key, pairs, 5);
+    free(key);
+    free(sak_id);
+    free(sak);
+    free(pn);
+
+    return ret;
 }
 
 /**
@@ -425,9 +667,12 @@ static int macsec_sonic_delete_transmit_sa(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%d on "SCISTR, sa->an, SCI2STR(sa->sc->sci.addr, sa->sc->sci.port));
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s", key);
+    int ret = sonic_db_del(drv->sonic_mamager, APPL_DB, APP_MACSEC_EGRESS_SA_TABLE_NAME, key);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -440,9 +685,16 @@ static int macsec_sonic_enable_transmit_sa(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%d on "SCISTR, sa->an, SCI2STR(sa->sc->sci.addr, sa->sc->sci.port));
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s", key);
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"active", "true"},
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_EGRESS_SA_TABLE_NAME, key, pairs, 1);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 /**
@@ -455,9 +707,16 @@ static int macsec_sonic_disable_transmit_sa(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    PRINT_LOG("%d on "SCISTR, sa->an, SCI2STR(sa->sc->sci.addr, sa->sc->sci.port));
+    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    PRINT_LOG("%s", key);
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"active", "false"},
+    };
+    int ret = sonic_db_set(drv->sonic_mamager, APPL_DB, APP_MACSEC_EGRESS_SA_TABLE_NAME, key, pairs, 1);
+    free(key);
 
-    return 0;
+    return ret;
 }
 
 static int macsec_sonic_status(void *priv, char *buf, size_t buflen)

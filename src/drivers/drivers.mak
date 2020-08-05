@@ -21,6 +21,8 @@ endif
 ifdef CONFIG_DRIVER_MACSEC_SONIC
 DRV_CFLAGS += -DCONFIG_DRIVER_MACSEC_SONIC
 DRV_OBJS += ../src/drivers/driver_macsec_sonic.o
+DRV_OBJS += ../src/drivers/sonic_operators.o
+DRV_LIBS += -lswsscommon -lstdc++
 NEED_DRV_WIRED_COMMON=1
 NEED_LIBNL=y
 CONFIG_LIBNL3_ROUTE=y
