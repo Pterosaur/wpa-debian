@@ -21,6 +21,17 @@
 /* select() function timeout retry time, in millisecond */
 #define SELECT_TIMEOUT 1000
 
+struct _sonic_db_name_value_pair {
+    char * name;
+    char * value;
+};
+
+struct _sonic_db_name_value_pairs
+{
+    unsigned int pair_count;
+    struct _sonic_db_name_value_pair * pairs;
+};
+
 class select_guard
 {
 private:
@@ -201,9 +212,10 @@ public:
             return SONIC_DB_FAIL;
         }
         // Copy the query result to the output
-        pairs->pairs = 
-            reinterpret_cast<struct sonic_db_name_value_pair *>(
-                realloc(pairs->pairs, sizeof(sonic_db_name_value_pair) * result.size())
+        auto _pairs = reinterpret_cast<struct _sonic_db_name_value_pairs *>(pairs);
+        _pairs->pairs = 
+            reinterpret_cast<struct _sonic_db_name_value_pair *>(
+                realloc(_pairs->pairs, sizeof(_sonic_db_name_value_pair) * result.size())
             );
         if (pairs->pairs == nullptr)
         {
@@ -211,10 +223,12 @@ public:
         }
         for (size_t i = 0; i < result.size(); i++)
         {
-            pairs->pairs[pairs->pair_count].name = reinterpret_cast<char *>(malloc(result[i].first.length() + 1));
-            memcpy(pairs->pairs[pairs->pair_count].name, result[i].first.data(), result[i].first.length() + 1);
-            pairs->pairs[pairs->pair_count].value = reinterpret_cast<char *>(malloc(result[i].second.length() + 1));
-            memcpy(pairs->pairs[pairs->pair_count].value, result[i].first.data(), result[i].second.length() + 1);
+            char * name = reinterpret_cast<char *>(malloc(result[i].first.length() + 1));
+            memcpy(name, result[i].first.data(), result[i].first.length() + 1);
+            _pairs->pairs[pairs->pair_count].name = name;
+            char * value = reinterpret_cast<char *>(malloc(result[i].second.length() + 1));
+            memcpy(value, result[i].first.data(), result[i].second.length() + 1);
+            _pairs->pairs[pairs->pair_count].value = value;
         }
         return SONIC_DB_SUCCESS;
     }
@@ -381,8 +395,8 @@ int sonic_db_wait(
 
 struct sonic_db_name_value_pairs * sonic_db_malloc_name_value_pairs()
 {
-    struct sonic_db_name_value_pairs * pairs = reinterpret_cast<struct sonic_db_name_value_pairs *>(
-        malloc(sizeof(struct sonic_db_name_value_pairs))
+    struct _sonic_db_name_value_pairs * pairs = reinterpret_cast<struct _sonic_db_name_value_pairs *>(
+        malloc(sizeof(struct _sonic_db_name_value_pairs))
     );
     if (pairs == nullptr)
     {
@@ -390,25 +404,26 @@ struct sonic_db_name_value_pairs * sonic_db_malloc_name_value_pairs()
     }
     pairs->pair_count = 0;
     pairs->pairs = UNSET_POINTER;
-    return pairs;
+    return reinterpret_cast<struct sonic_db_name_value_pairs *>(pairs);
 }
 
 void sonic_db_free_name_value_pairs(struct sonic_db_name_value_pairs * pairs)
 {
-    if (pairs == nullptr)
+    struct _sonic_db_name_value_pairs * _pairs = reinterpret_cast<struct _sonic_db_name_value_pairs *>(pairs);
+    if (_pairs == nullptr)
     {
         return;
     }
-    for (unsigned int i = 0; i < pairs->pair_count; i++)
+    for (unsigned int i = 0; i < _pairs->pair_count; i++)
     {
-        if (pairs->pairs[i].name != UNSET_POINTER)
+        if (_pairs->pairs[i].name != UNSET_POINTER)
         {
-            free(pairs->pairs[i].name);
+            free(_pairs->pairs[i].name);
         }
-        if (pairs->pairs[i].value != UNSET_POINTER)
+        if (_pairs->pairs[i].value != UNSET_POINTER)
         {
-            free(pairs->pairs[i].value);
+            free(_pairs->pairs[i].value);
         }
     }
-    free(pairs);
+    free(_pairs);
 }

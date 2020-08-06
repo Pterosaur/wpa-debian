@@ -35,14 +35,14 @@
 
 struct sonic_db_name_value_pair
 {
-    char * name;
-    char * value;
+    const char * const name;
+    const char * const value;
 };
 
 struct sonic_db_name_value_pairs
 {
-    unsigned int pair_count;
-    struct sonic_db_name_value_pair * pairs;
+    const unsigned int pair_count;
+    const struct sonic_db_name_value_pair * const pairs;
 };
 
 typedef void * sonic_db_handle;
