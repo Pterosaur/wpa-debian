@@ -10,9 +10,6 @@
 #define SONIC_OPERATORS_H
 
 // The following definitions should be moved to schema.h
-#define APPL_DB         0
-#define COUNTERS_DB     2
-#define STATE_DB        6
 
 #define APP_MACSEC_PORT_TABLE_NAME          "MACSEC_PORT_TABLE"
 #define APP_MACSEC_EGRESS_SC_TABLE_NAME     "MACSEC_EGRESS_SC_TABLE"
@@ -29,9 +26,9 @@
 #define COUNTERS_MACSEC_NAME_MAP            "COUNTERS_MACSEC_NAME_MAP"
 #define COUNTERS_MACSEC_TABLE               "COUNTERS_MACSEC"
 
-#define SET_COMMAND "SET"
-#define DEL_COMMAND "DEL"
 // End define
+
+#include <swss/schema.h>
 
 #define SONIC_DB_SUCCESS (0)
 #define SONIC_DB_FAIL    (-1)
