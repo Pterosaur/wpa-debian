@@ -21,6 +21,10 @@
 #define APP_MACSEC_INGRESS_SA_TABLE_NAME    "MACSEC_INGRESS_SA_TABLE"
 
 #define STATE_MACSEC_PORT_TABLE_NAME        "MACSEC_PORT_TABLE"
+#define STATE_MACSEC_INGRESS_SC_TABLE_NAME  "MACSEC_INGRESS_SC_TABLE"
+#define STATE_MACSEC_INGRESS_SA_TABLE_NAME  "MACSEC_INGRESS_SA_TABLE"
+#define STATE_MACSEC_EGRESS_SC_TABLE_NAME   "MACSEC_EGRESS_SC_TABLE"
+#define STATE_MACSEC_EGRESS_SA_TABLE_NAME   "MACSEC_EGRESS_SA_TABLE"
 
 #define COUNTERS_MACSEC_NAME_MAP            "COUNTERS_MACSEC_NAME_MAP"
 #define COUNTERS_MACSEC_TABLE               "COUNTERS_MACSEC"
@@ -35,14 +39,14 @@
 
 struct sonic_db_name_value_pair
 {
-    const char * const name;
-    const char * const value;
+    const char * name;
+    const char * value;
 };
 
 struct sonic_db_name_value_pairs
 {
-    const unsigned int pair_count;
-    const struct sonic_db_name_value_pair * const pairs;
+    unsigned int pair_count;
+    struct sonic_db_name_value_pair * pairs;
 };
 
 typedef void * sonic_db_handle;
@@ -52,6 +56,8 @@ extern "C" {
 #endif
 
 sonic_db_handle sonic_db_get_manager();
+
+
 
 int sonic_db_set(
     sonic_db_handle sonic_manager,
@@ -82,6 +88,18 @@ int sonic_db_wait(
     const char * key,
     const struct sonic_db_name_value_pair * pairs,
     unsigned int pair_count);
+
+int sonic_db_get_counter(
+    sonic_db_handle sonic_manager,
+    const char * table_name,
+    const char * key,
+    const char * field,
+    unsigned long long * counter);
+
+int sonic_db_del_counter(
+    sonic_db_handle sonic_manager,
+    const char * table_name,
+    const char * key);
 
 struct sonic_db_name_value_pairs * sonic_db_malloc_name_value_pairs();
 

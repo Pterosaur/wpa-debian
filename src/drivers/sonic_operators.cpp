@@ -14,12 +14,18 @@
 #include <deque>
 #include <memory>
 #include <iostream>
+#include <sstream>
+#include <thread>
+#include <chrono>
 
-// #define STANDALONE return SONIC_DB_SUCCESS;
-#define STANDALONE
+// select() function timeout retry time, in millisecond
+constexpr int SELECT_TIMEOUT = 1000;
 
-/* select() function timeout retry time, in millisecond */
-#define SELECT_TIMEOUT 1000
+// Retry times to counter db
+constexpr unsigned int RETRY_TIMES = 20;
+
+// Retry interval to counter db, in millisecond
+constexpr unsigned int RETRY_INTERVAL = 100;
 
 class select_guard
 {
@@ -55,6 +61,7 @@ private:
     std::map<std::string, swss::Table> m_tables_in_counter_db;
     std::map<std::string, swss::ProducerStateTable> m_producer_state_tables_in_app_db;
     std::map<std::string, swss::SubscriberStateTable> m_subscriber_state_tables_in_state_db;
+    std::map<std::string, swss::Table> m_tables_in_state_db;
 
     swss::Select m_selector;
 
@@ -116,9 +123,9 @@ private:
             auto value = std::find_if(
                 values.begin(),
                 values.end(),
-                [&](const swss::FieldValueTuple & it)
+                [&](const swss::FieldValueTuple & fvt)
                 {
-                    return pairs[i].name == fvField(it);
+                    return pairs[i].name == fvField(fvt);
                 });
             if (
                 (value == values.end())
@@ -177,26 +184,35 @@ public:
         int db_id,
         const std::string & table_name,
         const std::string & key,
+        std::vector<swss::FieldValueTuple> & pairs)
+    {
+        pairs.clear();
+        if (db_id == STATE_DB)
+        {
+            auto & table = get_table(m_tables_in_state_db, m_state_db, table_name);
+            if(!table.get(key, pairs))
+            {
+                return SONIC_DB_FAIL;
+            }
+            return SONIC_DB_SUCCESS;
+        }
+        else
+        {
+            return SONIC_DB_FAIL;
+        }
+    }
+
+    int get(
+        int db_id,
+        const std::string & table_name,
+        const std::string & key,
         struct sonic_db_name_value_pairs * pairs)
     {
         // TODO: Other module will change the database
         return SONIC_DB_SUCCESS;
+
         std::vector<swss::FieldValueTuple> result;
-        if (db_id == COUNTERS_DB)
-        {
-            const std::string id = get_sai_obj_id(key);
-            if (id.empty())
-            {
-                return SONIC_DB_FAIL;
-            }
-            // Find counter from counter db
-            auto & counter_table = get_table(m_tables_in_counter_db, m_counters_db, table_name);
-            if (!counter_table.get(id, result))
-            {
-                return SONIC_DB_FAIL;
-            }
-        }
-        else
+        if (get(db_id, table_name, key, result) != SONIC_DB_SUCCESS)
         {
             return SONIC_DB_FAIL;
         }
@@ -230,23 +246,6 @@ public:
         {
             auto & table = get_table(m_producer_state_tables_in_app_db, m_app_db, table_name);
             table.del(key);
-            if (m_producer_state_tables_in_app_db.erase(table_name) == 0)
-            {
-                return SONIC_DB_FAIL;
-            }
-            return SONIC_DB_SUCCESS;
-        }
-        else if (db_id == COUNTERS_DB)
-        {
-            const std::string id = get_sai_obj_id(key);
-            if (id.empty())
-            {
-                return SONIC_DB_FAIL;
-            }
-            if (m_tables_in_counter_db.erase(id) == 0)
-            {
-                return SONIC_DB_FAIL;
-            }
             return SONIC_DB_SUCCESS;
         }
         else
@@ -266,6 +265,7 @@ public:
         // TODO: Wait other module to change the database
         return SONIC_DB_SUCCESS;
 
+        // Subscribe the target table
         swss::ConsumerTableBase * consumer = nullptr;
         std::unique_ptr<select_guard> guarder;
         if (db_id == STATE_DB)
@@ -281,6 +281,23 @@ public:
         {
             return SONIC_DB_FAIL;
         }
+
+        // Proactively query the target table to avoid that 
+        // the target table was updated before the subscription
+        // which causes that the update cannot be fetched
+        swss::KeyOpFieldsValuesTuple result;
+        if (get(db_id, table_name, key, kfvFieldsValues(result)))
+        {
+            return SONIC_DB_FAIL;
+        }
+        kfvKey(result) = key;
+        kfvOp(result) = kfvFieldsValues(result).empty() ? DEL_COMMAND : SET_COMMAND;
+        if (meet_expectation(op, key, pairs, pair_count, result))
+        {
+            return SONIC_DB_SUCCESS;
+        }
+
+        // Fetch the update
         int ret = 0;
         while(true)
         {
@@ -306,11 +323,71 @@ public:
         };
         return SONIC_DB_SUCCESS;
     }
+
+    int get_counter(
+        const std::string & table_name,
+        const std::string & key,
+        const std::string & field,
+        unsigned long long * counter)
+    {
+        // TODO: Wait other module to change the database
+        return SONIC_DB_SUCCESS;
+
+        std::vector<swss::FieldValueTuple> result;
+        const std::string id = get_sai_obj_id(key);
+        if (id.empty())
+        {
+            return SONIC_DB_FAIL;
+        }
+        // Find counter from counter db
+        auto & counter_table = get_table(m_tables_in_counter_db, m_counters_db, table_name);
+        auto retry_time = RETRY_TIMES;
+        while (retry_time --)
+        {
+            if (!counter_table.get(id, result))
+            {
+                return SONIC_DB_FAIL;
+            }
+            auto value = std::find_if(
+                result.begin(),
+                result.end(),
+                [&](const swss::FieldValueTuple & fvt)
+                {
+                    return field == fvField(fvt);
+                });
+            if (value == result.end())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_INTERVAL));
+                continue;
+            }
+            std::stringstream(fvValue(*value)) >> *counter;
+            return SONIC_DB_SUCCESS;
+        }
+        return SONIC_DB_FAIL;
+    }
+
+    int del_counter(
+        const std::string & table_name,
+        const std::string & key)
+    {
+        // TODO: Wait other module to change the database
+        return SONIC_DB_SUCCESS;
+
+        const std::string id = get_sai_obj_id(key);
+        if (id.empty())
+        {
+            return SONIC_DB_FAIL;
+        }
+        if (m_tables_in_counter_db.erase(id) == 0)
+        {
+            return SONIC_DB_FAIL;
+        }
+        return SONIC_DB_SUCCESS;
+    }
 };
 
 sonic_db_handle sonic_db_get_manager()
 {
-    STANDALONE;
     thread_local sonic_db_manager manager;
     return &manager;
 }
@@ -323,7 +400,6 @@ int sonic_db_set(
     const struct sonic_db_name_value_pair * pairs,
     unsigned int pair_count)
 {
-    STANDALONE;
     sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
     if (manager == nullptr)
     {
@@ -339,7 +415,6 @@ int sonic_db_get(
     const char * key,
     struct sonic_db_name_value_pairs * pairs)
 {
-    STANDALONE;
     sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
     if (manager == nullptr)
     {
@@ -354,7 +429,6 @@ int sonic_db_del(
     const char * table_name,
     const char * key)
 {
-    STANDALONE;
     sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
     if (manager == nullptr)
     {
@@ -372,7 +446,6 @@ int sonic_db_wait(
     const struct sonic_db_name_value_pair * pairs,
     unsigned int pair_count)
 {
-    STANDALONE;
     sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
     if (manager == nullptr)
     {
@@ -380,6 +453,35 @@ int sonic_db_wait(
     }
     return manager->wait(db_id, table, op, key, pairs, pair_count);
 }
+
+int sonic_db_get_counter(
+    sonic_db_handle sonic_manager,
+    const char * table_name,
+    const char * key,
+    const char * field,
+    unsigned long long * counter)
+{
+    sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
+    if (manager == nullptr)
+    {
+        return SONIC_DB_FAIL;
+    }
+    return manager->get_counter(table_name, key, field, counter);
+}
+
+int sonic_db_del_counter(
+    sonic_db_handle sonic_manager,
+    const char * table_name,
+    const char * key)
+{
+    sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
+    if (manager == nullptr)
+    {
+        return SONIC_DB_FAIL;
+    }
+    return manager->del_counter(table_name, key);
+}
+
 
 struct sonic_db_name_value_pairs * sonic_db_malloc_name_value_pairs()
 {
