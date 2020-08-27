@@ -858,16 +858,18 @@ static int macsec_sonic_enable_transmit_sa(void *priv, struct transmit_sa *sa)
 
     char * key = CREATE_SA_KEY(drv->ifname, sa);
     PRINT_LOG("%s", key);
+    char * encoding_an = create_buffer("%u", sa->an);
     const struct sonic_db_name_value_pair pairs[] = 
     {
-        {"active", "true"},
+        {"encoding_an", encoding_an},
     };
     int ret = sonic_db_set(
         drv->sonic_mamager,
         APPL_DB,
-        APP_MACSEC_EGRESS_SA_TABLE_NAME,
+        APP_MACSEC_EGRESS_SC_TABLE_NAME,
         key,
         PAIR_ARRAY(pairs));
+
     if (ret == SONIC_DB_SUCCESS)
     {
         const struct sonic_db_name_value_pair pairs[] = 
@@ -882,6 +884,7 @@ static int macsec_sonic_enable_transmit_sa(void *priv, struct transmit_sa *sa)
             key,
             PAIR_ARRAY(pairs));
     }
+    free(encoding_an);
     free(key);
 
     return ret;
