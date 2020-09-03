@@ -333,7 +333,7 @@ static int macsec_sonic_enable_controlled_port(void *priv, Boolean enabled)
 
     const struct sonic_db_name_value_pair pairs[] = 
     {
-        {"enable_encrypt", enabled ? "true" : "false"}
+        {"enable", enabled ? "true" : "false"}
     };
     return sonic_db_set(
         drv->sonic_mamager,
