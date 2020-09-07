@@ -39,6 +39,8 @@
 #define PAIR_ARRAY(pairs) pairs,(sizeof(pairs)/sizeof(*pairs))
 
 #define DEFAULT_KEY_SEPARATOR  ":"
+#define APP_DB_SEPARATOR       DEFAULT_KEY_SEPARATOR
+#define STATE_DB_SEPARATOR     "|"
 
 static char * create_buffer(const char * fmt, ...)
 {
@@ -61,20 +63,20 @@ static char * create_buffer(const char * fmt, ...)
     return buffer;
 }
 
-#define CREATE_SC_KEY(IFNAME, SC)       \
-    create_buffer(                      \
-        "%s"                            \
-        DEFAULT_KEY_SEPARATOR "%llu",  \
-        IFNAME,                         \
+#define CREATE_SC_KEY(IFNAME, SC, SEPARATOR)    \
+    create_buffer(                              \
+        "%s"                                    \
+        SEPARATOR "%llu",                       \
+        IFNAME,                                 \
         mka_sci_u64(&SC->sci))
 
-#define CREATE_SA_KEY(IFNAME, SA)       \
-    create_buffer(                      \
-        "%s"                            \
-        DEFAULT_KEY_SEPARATOR "%llu"   \
-        DEFAULT_KEY_SEPARATOR "%u",     \
-        IFNAME,                         \
-        mka_sci_u64(&SA->sc->sci),      \
+#define CREATE_SA_KEY(IFNAME, SA, SEPARATOR)    \
+    create_buffer(                              \
+        "%s"                                    \
+        SEPARATOR "%llu"                        \
+        SEPARATOR "%u",                         \
+        IFNAME,                                 \
+        mka_sci_u64(&SA->sc->sci),              \
         (unsigned int)(SA->an))
 
 char * create_binary_hex(const void * binary, unsigned long long length)
@@ -164,7 +166,6 @@ static int macsec_sonic_macsec_init(void *priv, struct macsec_init_params *param
             SET_COMMAND,
             drv->ifname,
             PAIR_ARRAY(pairs));
-        
     }
     return ret;
 }
@@ -353,21 +354,22 @@ static int macsec_sonic_get_receive_lowest_pn(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
-    unsigned long long pn = 0;
-    int ret = sonic_db_get_counter(
-        drv->sonic_mamager,
-        COUNTERS_MACSEC_TABLE,
-        key,
-        "SAI_MACSEC_SA_ATTR_MINIMUM_XPN",
-        &pn);
-    if (ret == SONIC_DB_SUCCESS)
-    {
-        sa->next_pn = pn;
-    }
-    free(key);
-    return ret;
+    // unsigned long long pn = 0;
+    // int ret = sonic_db_get_counter(
+    //     drv->sonic_mamager,
+    //     COUNTERS_MACSEC_TABLE,
+    //     key,
+    //     "SAI_MACSEC_SA_ATTR_MINIMUM_XPN",
+    //     &pn);
+    // if (ret == SONIC_DB_SUCCESS)
+    // {
+    //     sa->next_pn = pn;
+    // }
+    // free(key);
+    // return ret;
+    return 0;
 }
 
 /**
@@ -380,7 +382,7 @@ static int macsec_sonic_set_receive_lowest_pn(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s - %u", key, sa->next_pn);
     char * buffer = create_buffer("%u", sa->next_pn);
     const struct sonic_db_name_value_pair pairs[] = 
@@ -409,21 +411,22 @@ static int macsec_sonic_get_transmit_next_pn(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
-    unsigned long long pn = 0;
-    int ret = sonic_db_get_counter(
-        drv->sonic_mamager,
-        COUNTERS_MACSEC_TABLE,
-        key,
-        "SAI_MACSEC_SA_ATTR_XPN",
-        &pn);
-    if (ret == SONIC_DB_SUCCESS)
-    {
-        sa->next_pn = pn;
-    }
-    free(key);
+    // unsigned long long pn = 0;
+    // int ret = sonic_db_get_counter(
+    //     drv->sonic_mamager,
+    //     COUNTERS_MACSEC_TABLE,
+    //     key,
+    //     "SAI_MACSEC_SA_ATTR_XPN",
+    //     &pn);
+    // if (ret == SONIC_DB_SUCCESS)
+    // {
+    //     sa->next_pn = pn;
+    // }
+    // free(key);
 
+    // return ret;
     return 0;
 }
 
@@ -437,7 +440,7 @@ static int macsec_sonic_set_transmit_next_pn(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s - %u", key, sa->next_pn);
     char * buffer = create_buffer("%u", sa->next_pn);
     const struct sonic_db_name_value_pair pairs[] = 
@@ -476,11 +479,15 @@ static int macsec_sonic_create_receive_sc(void *priv, struct receive_sc *sc,
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SC_KEY(drv->ifname, sc);
+    char * key = CREATE_SC_KEY(drv->ifname, sc, APP_DB_SEPARATOR);
     PRINT_LOG("%s (conf_offset=%u validation=%d)",
         key,
         conf_offset,
         validation);
+    const struct sonic_db_name_value_pair pairs[] = 
+    {
+        {"ssci", ""},
+    };
     // TODO 
     // Validation
     // OFFSET
@@ -489,13 +496,15 @@ static int macsec_sonic_create_receive_sc(void *priv, struct receive_sc *sc,
         APPL_DB,
         APP_MACSEC_INGRESS_SC_TABLE_NAME,
         key,
-        PAIR_EMPTY);
+        PAIR_ARRAY(pairs));
+    free(key);
     if (ret == SONIC_DB_SUCCESS)
     {
         const struct sonic_db_name_value_pair pairs[] = 
         {
             {"state", "ok"}
         };
+        char * key = CREATE_SC_KEY(drv->ifname, sc, STATE_DB_SEPARATOR);
         ret = sonic_db_wait(
             drv->sonic_mamager,
             STATE_DB,
@@ -503,8 +512,8 @@ static int macsec_sonic_create_receive_sc(void *priv, struct receive_sc *sc,
             SET_COMMAND,
             key,
             PAIR_ARRAY(pairs));
+        free(key);
     }
-    free(key);
 
     return ret;
 }
@@ -519,15 +528,17 @@ static int macsec_sonic_delete_receive_sc(void *priv, struct receive_sc *sc)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SC_KEY(drv->ifname, sc);
+    char * key = CREATE_SC_KEY(drv->ifname, sc, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
     int ret = sonic_db_del(
         drv->sonic_mamager,
         APPL_DB,
         APP_MACSEC_INGRESS_SC_TABLE_NAME,
         key);
+    free(key);
     if (ret == SONIC_DB_SUCCESS)
     {
+        char * key = CREATE_SC_KEY(drv->ifname, sc, STATE_DB_SEPARATOR);
         ret = sonic_db_wait(
             drv->sonic_mamager,
             STATE_DB,
@@ -535,8 +546,8 @@ static int macsec_sonic_delete_receive_sc(void *priv, struct receive_sc *sc)
             DEL_COMMAND,
             key,
             PAIR_EMPTY);
+        free(key);
     }
-    free(key);
 
     return ret;
 }
@@ -551,7 +562,7 @@ static int macsec_sonic_create_receive_sa(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     char * sak_id = create_binary_hex(&sa->pkey->key_identifier, sizeof(sa->pkey->key_identifier));
     char * sak = create_binary_hex(sa->pkey->key, sa->pkey->key_len);
     char * pn = create_buffer("%u", sa->next_pn);
@@ -597,24 +608,26 @@ static int macsec_sonic_delete_receive_sa(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
     int ret = sonic_db_del(
         drv->sonic_mamager,
         APPL_DB,
         APP_MACSEC_INGRESS_SA_TABLE_NAME,
         key);
+    free(key);
     if (ret == SONIC_DB_SUCCESS)
     {
+        char * key = CREATE_SA_KEY(drv->ifname, sa, STATE_DB_SEPARATOR);
         ret = sonic_db_wait(
             drv->sonic_mamager,
             STATE_DB,
-            DEL_COMMAND,
             STATE_MACSEC_INGRESS_SA_TABLE_NAME,
+            DEL_COMMAND,
             key,
             PAIR_EMPTY);
+        free(key);
     }
-    free(key);
 
     return ret;
 }
@@ -629,7 +642,7 @@ static int macsec_sonic_enable_receive_sa(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
     const struct sonic_db_name_value_pair pairs[] = 
     {
@@ -641,21 +654,23 @@ static int macsec_sonic_enable_receive_sa(void *priv, struct receive_sa *sa)
         APP_MACSEC_INGRESS_SA_TABLE_NAME,
         key,
         PAIR_ARRAY(pairs));
+    free(key);
     if (ret == SONIC_DB_SUCCESS)
     {
         const struct sonic_db_name_value_pair pairs[] = 
         {
             {"state", "ok"},
         };
+        char * key = CREATE_SA_KEY(drv->ifname, sa, STATE_DB_SEPARATOR);
         ret = sonic_db_wait(
             drv->sonic_mamager,
             STATE_DB,
-            SET_COMMAND,
             STATE_MACSEC_INGRESS_SA_TABLE_NAME,
+            SET_COMMAND,
             key,
             PAIR_ARRAY(pairs));
+        free(key);
     }
-    free(key);
 
     return ret;
 }
@@ -670,7 +685,7 @@ static int macsec_sonic_disable_receive_sa(void *priv, struct receive_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
     const struct sonic_db_name_value_pair pairs[] = 
     {
@@ -700,7 +715,7 @@ static int macsec_sonic_create_transmit_sc(
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SC_KEY(drv->ifname, sc);
+    char * key = CREATE_SC_KEY(drv->ifname, sc, APP_DB_SEPARATOR);
     PRINT_LOG("%s (conf_offset=%u)",
         key,
         conf_offset);
@@ -708,6 +723,7 @@ static int macsec_sonic_create_transmit_sc(
     // Validation
     const struct sonic_db_name_value_pair pairs[] = 
     {
+        {"ssci", ""},
         {"encoding_an", "0"},
     };
     int ret = sonic_db_set(
@@ -716,21 +732,23 @@ static int macsec_sonic_create_transmit_sc(
         APP_MACSEC_EGRESS_SC_TABLE_NAME,
         key,
         PAIR_ARRAY(pairs));
+    free(key);
     if (ret == SONIC_DB_SUCCESS)
     {
         const struct sonic_db_name_value_pair pairs[] = 
         {
             {"state", "ok"},
         };
+        char * key = CREATE_SC_KEY(drv->ifname, sc, STATE_DB_SEPARATOR);
         ret = sonic_db_wait(
             drv->sonic_mamager,
             STATE_DB,
-            SET_COMMAND,
             STATE_MACSEC_EGRESS_SC_TABLE_NAME,
+            SET_COMMAND,
             key,
             PAIR_ARRAY(pairs));
+        free(key);
     }
-    free(key);
 
     return ret;
 }
@@ -746,15 +764,17 @@ static int macsec_sonic_delete_transmit_sc(void *priv, struct transmit_sc *sc)
 
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SC_KEY(drv->ifname, sc);
+    char * key = CREATE_SC_KEY(drv->ifname, sc, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
     int ret = sonic_db_del(
         drv->sonic_mamager,
         APPL_DB,
         APP_MACSEC_EGRESS_SC_TABLE_NAME,
         key);
+    free(key);
     if (ret == SONIC_DB_SUCCESS)
     {
+        char * key = CREATE_SC_KEY(drv->ifname, sc, STATE_DB_SEPARATOR);
         ret = sonic_db_wait(
             drv->sonic_mamager,
             STATE_DB,
@@ -762,8 +782,8 @@ static int macsec_sonic_delete_transmit_sc(void *priv, struct transmit_sc *sc)
             DEL_COMMAND,
             key,
             PAIR_EMPTY);
+        free(key);
     }
-    free(key);
 
     return ret;
 }
@@ -778,7 +798,7 @@ static int macsec_sonic_create_transmit_sa(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     char * sak_id = create_binary_hex(&sa->pkey->key_identifier, sizeof(sa->pkey->key_identifier));
     char * sak = create_binary_hex(sa->pkey->key, sa->pkey->key_len);
     char * pn = create_buffer("%u", sa->next_pn);
@@ -794,7 +814,6 @@ static int macsec_sonic_create_transmit_sa(void *priv, struct transmit_sa *sa)
     // SALT
     const struct sonic_db_name_value_pair pairs[] = 
     {
-        {"active", "false"},
         {"sak", sak},
         {"auth_key", ""},
         {"init_pn", pn},
@@ -824,24 +843,26 @@ static int macsec_sonic_delete_transmit_sa(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
     int ret = sonic_db_del(
         drv->sonic_mamager,
         APPL_DB,
         APP_MACSEC_EGRESS_SA_TABLE_NAME,
         key);
+    free(key);
     if (ret == SONIC_DB_SUCCESS)
     {
+        char * key = CREATE_SA_KEY(drv->ifname, sa, STATE_DB_SEPARATOR);
         ret = sonic_db_wait(
             drv->sonic_mamager,
             STATE_DB,
-            DEL_COMMAND,
             STATE_MACSEC_EGRESS_SA_TABLE_NAME,
+            DEL_COMMAND,
             key,
             PAIR_EMPTY);
+        free(key);
     }
-    free(key);
 
     return ret;
 }
@@ -856,7 +877,7 @@ static int macsec_sonic_enable_transmit_sa(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SC_KEY(drv->ifname, sa->sc, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
     char * encoding_an = create_buffer("%u", sa->an);
     const struct sonic_db_name_value_pair pairs[] = 
@@ -869,23 +890,24 @@ static int macsec_sonic_enable_transmit_sa(void *priv, struct transmit_sa *sa)
         APP_MACSEC_EGRESS_SC_TABLE_NAME,
         key,
         PAIR_ARRAY(pairs));
-
+    free(key);
     if (ret == SONIC_DB_SUCCESS)
     {
         const struct sonic_db_name_value_pair pairs[] = 
         {
             {"state", "ok"},
         };
+        char * key = CREATE_SA_KEY(drv->ifname, sa, STATE_DB_SEPARATOR);
         ret = sonic_db_wait(
             drv->sonic_mamager,
             STATE_DB,
-            SET_COMMAND,
             STATE_MACSEC_EGRESS_SA_TABLE_NAME,
+            SET_COMMAND,
             key,
             PAIR_ARRAY(pairs));
+        free(key);
     }
     free(encoding_an);
-    free(key);
 
     return ret;
 }
@@ -900,7 +922,7 @@ static int macsec_sonic_disable_transmit_sa(void *priv, struct transmit_sa *sa)
 {
     struct macsec_sonic_data *drv = priv;
 
-    char * key = CREATE_SA_KEY(drv->ifname, sa);
+    char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
     PRINT_LOG("%s", key);
     free(key);
 

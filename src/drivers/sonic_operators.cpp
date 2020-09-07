@@ -97,21 +97,25 @@ private:
 
     bool meet_expectation(
         const std::string & op,
-        const std::string & key,
         const sonic_db_name_value_pair * pairs,
         unsigned int pair_count,
         const swss::KeyOpFieldsValuesTuple & entry) const
     {
-        if (
-            (!op.empty() && op != kfvOp(entry))
-            || (!key.empty() && key != kfvKey(entry))
-            )
+        if (op.empty() || op != kfvOp(entry))
         {
             return false;
         }
         if (pairs == nullptr || pair_count == 0)
         {
-            return true;
+            if (op == DEL_COMMAND)
+            {
+                return true;
+            }
+            else
+            {
+                return !kfvFieldsValues(entry).empty();
+            }
+            
         }
         auto values = kfvFieldsValues(entry);
         for (unsigned int i = 0; i < pair_count; i++)
@@ -263,7 +267,7 @@ public:
     unsigned int pair_count)
     {
         // TODO: Wait other module to change the database
-        return SONIC_DB_SUCCESS;
+        // return SONIC_DB_SUCCESS;
 
         // Subscribe the target table
         swss::ConsumerTableBase * consumer = nullptr;
@@ -286,13 +290,9 @@ public:
         // the target table was updated before the subscription
         // which causes that the update cannot be fetched
         swss::KeyOpFieldsValuesTuple result;
-        if (get(db_id, table_name, key, kfvFieldsValues(result)))
-        {
-            return SONIC_DB_FAIL;
-        }
-        kfvKey(result) = key;
+        get(db_id, table_name, key, kfvFieldsValues(result));
         kfvOp(result) = kfvFieldsValues(result).empty() ? DEL_COMMAND : SET_COMMAND;
-        if (meet_expectation(op, key, pairs, pair_count, result))
+        if (meet_expectation(op, pairs, pair_count, result))
         {
             return SONIC_DB_SUCCESS;
         }
@@ -309,13 +309,13 @@ public:
             }
             if (ret == swss::Select::TIMEOUT)
             {
-                return SONIC_DB_FAIL;
+                continue;
             }
             std::deque<swss::KeyOpFieldsValuesTuple> entries;
             consumer->pops(entries);
             for (auto & entry : entries)
             {
-                if (meet_expectation(op, key, pairs, pair_count, entry))
+                if (meet_expectation(op, pairs, pair_count, entry))
                 {
                     return SONIC_DB_SUCCESS;
                 }
@@ -366,24 +366,24 @@ public:
         return SONIC_DB_FAIL;
     }
 
-    int del_counter(
-        const std::string & table_name,
-        const std::string & key)
-    {
-        // TODO: Wait other module to change the database
-        return SONIC_DB_SUCCESS;
+    // int del_counter(
+    //     const std::string & table_name,
+    //     const std::string & key)
+    // {
+    //     // TODO: Wait other module to change the database
+    //     return SONIC_DB_SUCCESS;
 
-        const std::string id = get_sai_obj_id(key);
-        if (id.empty())
-        {
-            return SONIC_DB_FAIL;
-        }
-        if (m_tables_in_counter_db.erase(id) == 0)
-        {
-            return SONIC_DB_FAIL;
-        }
-        return SONIC_DB_SUCCESS;
-    }
+    //     const std::string id = get_sai_obj_id(key);
+    //     if (id.empty())
+    //     {
+    //         return SONIC_DB_FAIL;
+    //     }
+    //     if (m_tables_in_counter_db.erase(id) == 0)
+    //     {
+    //         return SONIC_DB_FAIL;
+    //     }
+    //     return SONIC_DB_SUCCESS;
+    // }
 };
 
 sonic_db_handle sonic_db_get_manager()
@@ -454,33 +454,33 @@ int sonic_db_wait(
     return manager->wait(db_id, table, op, key, pairs, pair_count);
 }
 
-int sonic_db_get_counter(
-    sonic_db_handle sonic_manager,
-    const char * table_name,
-    const char * key,
-    const char * field,
-    unsigned long long * counter)
-{
-    sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
-    if (manager == nullptr)
-    {
-        return SONIC_DB_FAIL;
-    }
-    return manager->get_counter(table_name, key, field, counter);
-}
+// int sonic_db_get_counter(
+//     sonic_db_handle sonic_manager,
+//     const char * table_name,
+//     const char * key,
+//     const char * field,
+//     unsigned long long * counter)
+// {
+//     sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
+//     if (manager == nullptr)
+//     {
+//         return SONIC_DB_FAIL;
+//     }
+//     return manager->get_counter(table_name, key, field, counter);
+// }
 
-int sonic_db_del_counter(
-    sonic_db_handle sonic_manager,
-    const char * table_name,
-    const char * key)
-{
-    sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
-    if (manager == nullptr)
-    {
-        return SONIC_DB_FAIL;
-    }
-    return manager->del_counter(table_name, key);
-}
+// int sonic_db_del_counter(
+//     sonic_db_handle sonic_manager,
+//     const char * table_name,
+//     const char * key)
+// {
+//     sonic_db_manager * manager = reinterpret_cast<sonic_db_manager *>(sonic_manager);
+//     if (manager == nullptr)
+//     {
+//         return SONIC_DB_FAIL;
+//     }
+//     return manager->del_counter(table_name, key);
+// }
 
 
 struct sonic_db_name_value_pairs * sonic_db_malloc_name_value_pairs()
