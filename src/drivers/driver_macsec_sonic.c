@@ -79,7 +79,7 @@ static char * create_buffer(const char * fmt, ...)
         mka_sci_u64(&SA->sc->sci),              \
         (unsigned int)(SA->an))
 
-char * create_binary_hex(const void * binary, unsigned long long length)
+static char * create_binary_hex(const void * binary, unsigned long long length)
 {
     if (binary == NULL || length == 0)
     {
