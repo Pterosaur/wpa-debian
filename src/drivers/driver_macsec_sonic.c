@@ -90,7 +90,7 @@ char * create_binary_hex(const void * binary, unsigned long long length)
     {
         return NULL;
     }
-    const char * input = (const char *)binary;
+    const unsigned char * input = (const unsigned char *)binary;
     for (unsigned long long i = 0; i < length; i++)
     {
         snprintf(&buffer[i * 2], 3, "%02X", input[i]);
