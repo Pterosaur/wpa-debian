@@ -370,21 +370,20 @@ static int macsec_sonic_get_receive_lowest_pn(void *priv, struct receive_sa *sa)
     struct macsec_sonic_data *drv = priv;
 
     char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
-    PRINT_LOG("%s", key);
-    // unsigned long long pn = 0;
-    // int ret = sonic_db_get_counter(
-    //     drv->sonic_mamager,
-    //     COUNTERS_MACSEC_TABLE,
-    //     key,
-    //     "SAI_MACSEC_SA_ATTR_MINIMUM_XPN",
-    //     &pn);
-    // if (ret == SONIC_DB_SUCCESS)
-    // {
-    //     sa->next_pn = pn;
-    // }
-    // free(key);
-    // return ret;
-    return 0;
+    unsigned long long pn = 1;
+    int ret = sonic_db_get_counter(
+        drv->sonic_mamager,
+        COUNTERS_TABLE,
+        key,
+        "SAI_MACSEC_SA_ATTR_MINIMUM_XPN",
+        &pn);
+    PRINT_LOG("SA %s PN %llu", key, pn);
+    if (ret == SONIC_DB_SUCCESS)
+    {
+        sa->next_pn = pn;
+    }
+    free(key);
+    return ret;
 }
 
 /**
@@ -427,22 +426,21 @@ static int macsec_sonic_get_transmit_next_pn(void *priv, struct transmit_sa *sa)
     struct macsec_sonic_data *drv = priv;
 
     char * key = CREATE_SA_KEY(drv->ifname, sa, APP_DB_SEPARATOR);
-    PRINT_LOG("%s", key);
-    // unsigned long long pn = 0;
-    // int ret = sonic_db_get_counter(
-    //     drv->sonic_mamager,
-    //     COUNTERS_MACSEC_TABLE,
-    //     key,
-    //     "SAI_MACSEC_SA_ATTR_XPN",
-    //     &pn);
-    // if (ret == SONIC_DB_SUCCESS)
-    // {
-    //     sa->next_pn = pn;
-    // }
-    // free(key);
+    unsigned long long pn = 1;
+    int ret = sonic_db_get_counter(
+        drv->sonic_mamager,
+        COUNTERS_TABLE,
+        key,
+        "SAI_MACSEC_SA_ATTR_XPN",
+        &pn);
+    PRINT_LOG("SA %s PN %llu", key, pn);
+    if (ret == SONIC_DB_SUCCESS)
+    {
+        sa->next_pn = pn;
+    }
+    free(key);
 
-    // return ret;
-    return 0;
+    return ret;
 }
 
 /**

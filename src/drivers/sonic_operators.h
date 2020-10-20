@@ -24,7 +24,6 @@
 #define STATE_MACSEC_EGRESS_SA_TABLE_NAME   "MACSEC_EGRESS_SA_TABLE"
 
 #define COUNTERS_MACSEC_NAME_MAP            "COUNTERS_MACSEC_NAME_MAP"
-#define COUNTERS_MACSEC_TABLE               "COUNTERS_MACSEC"
 
 // End define
 
@@ -86,17 +85,17 @@ int sonic_db_wait(
     const struct sonic_db_name_value_pair * pairs,
     unsigned int pair_count);
 
-// int sonic_db_get_counter(
-//     sonic_db_handle sonic_manager,
-//     const char * table_name,
-//     const char * key,
-//     const char * field,
-//     unsigned long long * counter);
+int sonic_db_get_counter(
+    sonic_db_handle sonic_manager,
+    const char * table_name,
+    const char * key,
+    const char * field,
+    unsigned long long * counter);
 
-// int sonic_db_del_counter(
-//     sonic_db_handle sonic_manager,
-//     const char * table_name,
-//     const char * key);
+int sonic_db_del_counter(
+    sonic_db_handle sonic_manager,
+    const char * table_name,
+    const char * key);
 
 struct sonic_db_name_value_pairs * sonic_db_malloc_name_value_pairs();
 
