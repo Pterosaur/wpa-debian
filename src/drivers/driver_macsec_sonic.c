@@ -12,6 +12,8 @@
 #include <inttypes.h>
 #include <stdarg.h>
 
+#include <openssl/aes.h>
+
 #include "utils/common.h"
 #include "driver.h"
 #include "driver_wired_common.h"
@@ -96,6 +98,19 @@ static char * create_binary_hex(const void * binary, unsigned long long length)
         snprintf(&buffer[i * 2], 3, "%02X", input[i]);
     }
     return buffer;
+}
+
+static char *create_auth_key(const unsigned char *key, unsigned long long key_length)
+{
+    unsigned char buffer[16] = {0};
+    AES_KEY aes;
+    if (AES_set_encrypt_key(key, key_length * 8, &aes) < 0)
+    {
+        return NULL;
+    }
+    AES_ecb_encrypt(buffer, buffer, &aes, AES_ENCRYPT);
+    char *auth_key = create_binary_hex(buffer, sizeof(buffer));
+    return auth_key;
 }
 
 struct macsec_sonic_data
@@ -566,6 +581,7 @@ static int macsec_sonic_create_receive_sa(void *priv, struct receive_sa *sa)
     char * sak_id = create_binary_hex(&sa->pkey->key_identifier, sizeof(sa->pkey->key_identifier));
     char * sak = create_binary_hex(sa->pkey->key, sa->pkey->key_len);
     char * pn = create_buffer("%u", sa->next_pn);
+    char * auth_key = create_auth_key(sa->pkey->key, sa->pkey->key_len);
     PRINT_LOG("%s (enable_receive=%d next_pn=%u) %s %s",
         key,
         sa->enable_receive,
@@ -574,13 +590,12 @@ static int macsec_sonic_create_receive_sa(void *priv, struct receive_sa *sa)
         sak);
 
     // TODO
-    // AUTH_KEY
     // SALT
     const struct sonic_db_name_value_pair pairs[] = 
     {
         {"active", "false"},
         {"sak", sak},
-        {"auth_key", ""},
+        {"auth_key", auth_key},
         {"lowest_acceptable_pn", pn},
         {"salt", ""}
     };
@@ -594,7 +609,7 @@ static int macsec_sonic_create_receive_sa(void *priv, struct receive_sa *sa)
     free(sak_id);
     free(sak);
     free(pn);
-
+    free(auth_key);
     return ret;
 }
 
@@ -802,6 +817,7 @@ static int macsec_sonic_create_transmit_sa(void *priv, struct transmit_sa *sa)
     char * sak_id = create_binary_hex(&sa->pkey->key_identifier, sizeof(sa->pkey->key_identifier));
     char * sak = create_binary_hex(sa->pkey->key, sa->pkey->key_len);
     char * pn = create_buffer("%u", sa->next_pn);
+    char * auth_key = create_auth_key(sa->pkey->key, sa->pkey->key_len);
     PRINT_LOG("%s (enable_receive=%d next_pn=%u) %s %s",
         key,
         sa->enable_transmit,
@@ -815,7 +831,7 @@ static int macsec_sonic_create_transmit_sa(void *priv, struct transmit_sa *sa)
     const struct sonic_db_name_value_pair pairs[] = 
     {
         {"sak", sak},
-        {"auth_key", ""},
+        {"auth_key", auth_key},
         {"init_pn", pn},
         {"salt", ""}
     };
@@ -829,6 +845,7 @@ static int macsec_sonic_create_transmit_sa(void *priv, struct transmit_sa *sa)
     free(sak_id);
     free(sak);
     free(pn);
+    free(auth_key);
 
     return ret;
 }
