@@ -212,9 +212,6 @@ public:
         const std::string & key,
         struct sonic_db_name_value_pairs * pairs)
     {
-        // TODO: Other module will change the database
-        return SONIC_DB_SUCCESS;
-
         std::vector<swss::FieldValueTuple> result;
         if (get(db_id, table_name, key, result) != SONIC_DB_SUCCESS)
         {
@@ -266,9 +263,6 @@ public:
     const struct sonic_db_name_value_pair * pairs,
     unsigned int pair_count)
     {
-        // TODO: Wait other module to change the database
-        // return SONIC_DB_SUCCESS;
-
         // Subscribe the target table
         swss::ConsumerTableBase * consumer = nullptr;
         std::unique_ptr<select_guard> guarder;

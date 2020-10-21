@@ -824,7 +824,6 @@ static int macsec_sonic_create_transmit_sa(void *priv, struct transmit_sa *sa)
         sak);
 
     // TODO
-    // AUTH_KEY
     // SALT
     const struct sonic_db_name_value_pair pairs[] = 
     {
