@@ -19,7 +19,7 @@
 #include <chrono>
 
 // select() function timeout retry time, in millisecond
-constexpr int SELECT_TIMEOUT = 1000;
+constexpr int SELECT_TIMEOUT = 2000;
 
 // Retry times to counter db
 constexpr unsigned int RETRY_TIMES = 20;
@@ -303,7 +303,7 @@ public:
             }
             if (ret == swss::Select::TIMEOUT)
             {
-                continue;
+                return SONIC_DB_FAIL;
             }
             std::deque<swss::KeyOpFieldsValuesTuple> entries;
             consumer->pops(entries);
