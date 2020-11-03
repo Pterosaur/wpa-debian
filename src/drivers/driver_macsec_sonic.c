@@ -24,14 +24,10 @@
 #define LOG_FORMAT(FORMAT, ...) \
     DRV_PREFIX"(%s) : %s "FORMAT"\n",drv->ifname,__PRETTY_FUNCTION__,__VA_ARGS__
 
-#define STD_PRINT_LOG(FORMAT, ...) \
-    printf(LOG_FORMAT(FORMAT,__VA_ARGS__))
-
 #define WPA_PRINT_LOG(FORMAT, ...) \
     wpa_printf(MSG_DEBUG, LOG_FORMAT(FORMAT, __VA_ARGS__))
 
 #define PRINT_LOG(FORMAT, ...) \
-    STD_PRINT_LOG(FORMAT, __VA_ARGS__); \
     WPA_PRINT_LOG(FORMAT, __VA_ARGS__);
 
 #define ENTER_LOG \
